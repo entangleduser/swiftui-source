@@ -23,82 +23,44 @@ public typealias TextViewDelegate = UITextViewDelegate
 public typealias NativeEdgeInsets = UIEdgeInsets
 #endif
 
-public class SourceTextView: TextView, ObservableObject {
-    #if os(macOS)
-    lazy var stringValue = string
-    #elseif os(iOS)
-    lazy var stringValue = text ?? ""
-    
-    public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        if let delegate = (delegate as? _Source.Coordinator),
-              !delegate.view.input.isEmpty, !stringValue.isEmpty,
-              let previous = previousTraitCollection,
-              previous.hasDifferentColorAppearance(comparedTo: traitCollection) {
-        themeDidChange = true
-        DispatchQueue.main.async(qos: .userInteractive) {
-            delegate.highlight(self)
-        }
-    }
-        themeDidChange = false
-    }
-    #endif
-    @Published var themeDidChange: Bool = false {
-        willSet {
-            if newValue,
-                  let delegate = delegate as? _Source.Coordinator,
-                  !delegate.view.input.isEmpty, !stringValue.isEmpty {
-            DispatchQueue.main.async(qos: .userInteractive) {
-                delegate.highlight(self)
-            }
-            }
-        }
-    }
-}
-
-//struct SourceInputKey: FocusedValueKey {
-//    typealias Value = Binding<String>
-//}
-//
-//extension FocusedValues {
-//    var sourceInput: Binding<String>? {
-//        get { self[SourceInputKey.self] }
-//        set { self[SourceInputKey.self] = newValue }
-//    }
-//}
-struct SourceInputKey: EnvironmentKey {
-    static var defaultValue: Binding<String> { .constant("") }
-}
-
-extension EnvironmentValues {
-    var sourceInput: Binding<String> {
-        get { self[SourceInputKey.self] }
-        set { self[SourceInputKey.self] = newValue }
-    }
-}
-
 @available(iOS 14.0, *)
 public struct Source: View {
+    @Environment(\.colorScheme) var colorScheme
     @StateObject var textView: SourceTextView = SourceTextView()
     @Binding var input: String
-    @Binding var language: ParsingLanguage
+    @Binding var language: Language
     @Binding var fontSet: FontSet
-    @Binding var theme: Theme
+    @Binding var themeSet: ThemeSet
     @Binding var themeDidChange: Bool
-    let insets: NativeEdgeInsets
-    let offset: CGPoint
     let isEditable: Bool
     let isScrollEnabled: Bool
+    let insets: NativeEdgeInsets
+    let offset: CGPoint
     let modify: ((SourceTextView) -> Void)?
+    let onChange: (() -> Void)?
+    @State var theme: Theme = .styri {
+        didSet {
+            themeDidChange = true
+            themeDidChange = false
+        }
+    }
 
     public var body: some View {
         _Source(
             input: $input,
             language: $language,
             fontSet: $fontSet,
-            theme: $theme
+            themeSet: $themeSet,
+            theme: $theme,
+            isEditable: isEditable,
+            isScrollEnabled: isScrollEnabled,
+            insets: insets,
+            offset: offset,
+            onChange: onChange
         )
         .onAppear {
             modify?(textView)
+            update(for: colorScheme)
             #if os(macOS)
             textView.delegate?.textDidChange?(
                 Notification(
@@ -110,28 +72,31 @@ public struct Source: View {
             textView.delegate?.textViewDidChange?(textView)
             #endif
         }
-        .environmentObject(textView)
         .onChange(of: themeDidChange) { didChange in
             guard didChange else { return }
-            textView.themeDidChange = didChange
+            textView.updateTheme()
             themeDidChange = false
         }
+        .onChange(of: colorScheme) { scheme in
+            update(for: scheme)
+        }
+        .environmentObject(textView)
     }
     public init(input: Binding<String>,
-                language: Binding<ParsingLanguage>,
+                language: Binding<Language>,
                 fontSet: Binding<FontSet>,
-                //                themeSet: Binding<ThemeSet>,
-                theme: Binding<Theme>,
+                themeSet: Binding<ThemeSet>,
                 themeDidChange: Binding<Bool>,
                 isEditable: Bool = true,
                 isScrollEnabled: Bool = true,
                 insets: NativeEdgeInsets =
                     NativeEdgeInsets(top: 0,
-                                     left: 4.5,
+                                     left: 0,
                                      bottom: 0,
-                                     right: 4.5),
+                                     right: 0),
                 offset: CGPoint = .zero,
-                modify: ((SourceTextView) -> Void)? = nil) {
+                modify: ((SourceTextView) -> Void)? = nil,
+                onChange perform: (() -> Void)? = nil) {
         self.isEditable = isEditable
         self.isScrollEnabled = isScrollEnabled
         self.insets = insets
@@ -140,31 +105,44 @@ public struct Source: View {
         self._input = input
         self._language = language
         self._fontSet = fontSet
-        self._theme = theme
+        self._themeSet = themeSet
         self._themeDidChange = themeDidChange
-        //        self._themeSet = themeSet
+        self.onChange = perform
+    }
+    func update(for scheme: ColorScheme) {
+        theme =
+            scheme == .dark ?
+            themeSet.dark : themeSet.light
     }
 }
 @available(iOS 13.0, *)
 public struct __Source: View {
     @ObservedObject var textView: SourceTextView = SourceTextView()
     @Binding var input: String
-    @Binding var language: ParsingLanguage
+    @Binding var language: Language
     @Binding var fontSet: FontSet
-    @Binding var theme: Theme
+    @Binding var themeSet: ThemeSet
     @Binding var themeDidChange: Bool
-    let insets: NativeEdgeInsets
-    let offset: CGPoint
     let isEditable: Bool
     let isScrollEnabled: Bool
+    let insets: NativeEdgeInsets
+    let offset: CGPoint
     let modify: ((SourceTextView) -> Void)?
+    let onChange: (() -> Void)?
+    @State var theme: Theme = .styri
 
     public var body: some View {
         _Source(
             input: $input,
             language: $language,
             fontSet: $fontSet,
-            theme: $theme
+            themeSet: $themeSet,
+            theme: $theme,
+            isEditable: isEditable,
+            isScrollEnabled: isScrollEnabled,
+            insets: insets,
+            offset: offset,
+            onChange: onChange
         )
         .onAppear {
             modify?(textView)
@@ -183,20 +161,20 @@ public struct __Source: View {
     }
 
     public init(input: Binding<String>,
-                language: Binding<ParsingLanguage>,
+                language: Binding<Language>,
                 fontSet: Binding<FontSet>,
-                //                themeSet: Binding<ThemeSet>,
-                theme: Binding<Theme>,
+                themeSet: Binding<ThemeSet>,
                 themeDidChange: Binding<Bool>,
                 isEditable: Bool = true,
                 isScrollEnabled: Bool = true,
                 insets: NativeEdgeInsets =
                     NativeEdgeInsets(top: 0,
-                                 left: 4.5,
-                                 bottom: 0,
-                                 right: 4.5),
+                                     left: 0,
+                                     bottom: 0,
+                                     right: 0),
                 offset: CGPoint = .zero,
-                modify: ((SourceTextView) -> Void)? = nil) {
+                modify: ((SourceTextView) -> Void)? = nil,
+                onChange perform: (() -> Void)? = nil) {
         self.isEditable = isEditable
         self.isScrollEnabled = isScrollEnabled
         self.insets = insets
@@ -205,50 +183,25 @@ public struct __Source: View {
         self._input = input
         self._language = language
         self._fontSet = fontSet
-        self._theme = theme
+        self._themeSet = themeSet
         self._themeDidChange = themeDidChange
-        //        self._themeSet = themeSet
+        self.onChange = perform
     }
 }
 
+// MARK: - UIKitComponent
 struct _Source: ViewRepresentable {
     @EnvironmentObject var textView: SourceTextView
-    //    @FocusedBinding(\.sourceInput) public var input: String!
-    //    @Binding var input: String
     @Binding var input: String
-    @Binding var language: ParsingLanguage
+    @Binding var language: Language
     @Binding var fontSet: FontSet
-    //    @Binding var themeSet: ThemeSet
+    @Binding var themeSet: ThemeSet
     @Binding var theme: Theme
-    
     let isEditable: Bool
     let isScrollEnabled: Bool
     let insets: NativeEdgeInsets
     let offset: CGPoint
-
-    init(input: Binding<String>,
-         language: Binding<ParsingLanguage>,
-         fontSet: Binding<FontSet>,
-         //         themeSet: Binding<ThemeSet>,
-         theme: Binding<Theme>,
-         isEditable: Bool = true,
-         isScrollEnabled: Bool = true,
-         insets: NativeEdgeInsets =
-            NativeEdgeInsets(top: 0,
-                             left: 3.5,
-                             bottom: 0,
-                             right: 3.5),
-         offset: CGPoint = .zero) {
-        self.isEditable = isEditable
-        self.isScrollEnabled = isScrollEnabled
-        self.insets = insets
-        self.offset = offset
-        self._input = input
-        self._language = language
-        self._fontSet = fontSet
-        //        self._themeSet = themeSet
-        self._theme = theme
-    }
+    let onChange: (() -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(view: self)
@@ -272,9 +225,8 @@ struct _Source: ViewRepresentable {
         textView.contentInset = context.coordinator.view.insets
         textView.contentOffset = context.coordinator.view.offset
         #endif
-        textView.textColor = theme.foreground
-
-        textView.font = fontSet.font
+        context.coordinator.updateFont(textView)
+        context.coordinator.updateAttributes(textView)
         context.coordinator.highlight(textView)
         return textView
     }
@@ -315,6 +267,7 @@ extension _Source {
             guard
                 let textView = notification.object as? TextView else { return }
             view.input = textView.string
+            view.onChange?()
             highlight(textView)
         }
         func textDidBeginEditing(_ notification: Notification) {
@@ -328,6 +281,7 @@ extension _Source {
         #elseif os(iOS)
         func textViewDidChange(_ textView: TextView) {
             view.input = textView.text
+            view.onChange?()
             highlight(textView)
         }
         func textViewDidBeginEditing(_ textView: TextView) {
@@ -339,45 +293,37 @@ extension _Source {
         #endif
         
         func highlight(_ textView: TextView) {
+            guard let language = view.language as? ParsingLanguage else {
+                updateFont(textView)
+                //                updateAttributes(textView)
+                return
+            }
             do {
                 #if os(macOS)
                 let text = textView.string
                 #elseif os(iOS)
                 guard let text = textView.text else { return }
                 #endif
-                try view.language.parse(text: text,
-                                        theme: view.theme,
-                                        fontSet: view.fontSet, result: { result, string in
-                                            DispatchQueue.main.async(qos: .userInteractive) {
-                                                #if os(macOS)
-                                                textView.textStorage?.setAttributedString(string)
-                                                #elseif os(iOS)
-                                                textView.textStorage.setAttributedString(string)
-                                                #endif
-                        }
-                    }
+                try language.parse(text: text,
+                                   theme: view.theme,
+                                   fontSet: view.fontSet, result: { result, string in
+                                    DispatchQueue.main.async(qos: .userInteractive) {
+                                        #if os(macOS)
+                                        textView.textStorage?.setAttributedString(string)
+                                        #elseif os(iOS)
+                                        textView.textStorage.setAttributedString(string)
+                                        #endif
+                                    }
+                                   }
                 )
             }
             catch {
                 debugPrint(error.localizedDescription)
             }
-//            switch tokens?.parse(text: attributedText,
-//                                 range: nil,
-//                                 language: view.language,
-//                                 theme: view.theme,
-//                                 font: view.fontSet.font) {
-//                case .success(let value):
-//                    DispatchQueue.main.async(qos: .userInteractive) {
-//                        #if os(macOS)
-//                        textView.textStorage?.setAttributedString(value)
-//                        #elseif os(iOS)
-//                        textView.textStorage.setAttributedString(value)
-//                        #endif
-//                    }
-//                case .failure(let error):
-//                    print(error.errorDescription!)
-//                default: break
-//            }
+        }
+        func updateFont(_ textView: TextView) {
+            textView.font = view.fontSet.font
+            textView.textColor = view.theme.foreground
         }
         func updateAttributes(_ textView: TextView) {
             #if os(macOS)
@@ -392,3 +338,33 @@ extension _Source {
         }
     }
 }
+
+// MARK: - Subclass
+public class SourceTextView: TextView, ObservableObject {
+    #if os(macOS)
+    lazy var stringValue = string
+    #elseif os(iOS)
+    lazy var stringValue = text ?? ""
+
+    public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        if let delegate = (delegate as? _Source.Coordinator) {
+            if !delegate.view.input.isEmpty, !stringValue.isEmpty,
+               let previous = previousTraitCollection?.userInterfaceStyle,
+               previous != traitCollection.userInterfaceStyle {
+                DispatchQueue.main.async(qos: .userInteractive) { [self] in
+                    delegate.highlight(self)
+                }
+            }
+        }
+    }
+    #endif
+    func updateTheme() {
+        if let delegate = delegate as? _Source.Coordinator {
+            DispatchQueue.main.async(qos: .userInteractive) { [self] in
+                delegate.updateFont(self)
+                delegate.highlight(self)
+            }
+        }
+    }
+}
+

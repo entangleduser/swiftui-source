@@ -214,6 +214,7 @@ struct _Source: ViewRepresentable {
         textView.string = context.coordinator.view.input
         textView.isRichText = false
         textView.drawsBackground = false
+        textView.enclosingScrollView?.automaticallyAdjustsContentInsets = false
         textView.textContainer?.textView?.additionalSafeAreaInsets =
             context.coordinator.view.insets
         textView.textContainer?.textView?.bounds.origin =
@@ -331,7 +332,7 @@ extension _Source {
             #elseif os(iOS)
             textView.tintColor = view.theme.foreground
             #endif
-            textView.backgroundColor = .clear
+            textView.backgroundColor = view.theme.background
             //textView.selectedTextRange = context.coordinator.selection
             //        let layoutDirection = UIView.userInterfaceLayoutDirection(for: textView.semanticContentAttribute)
             //        textView.textAlignment = NSTextAlignment(textAlignment: textAlignment, userInterfaceLayoutDirection: layoutDirection)
@@ -362,6 +363,7 @@ public class SourceTextView: TextView, ObservableObject {
         if let delegate = delegate as? _Source.Coordinator {
             DispatchQueue.main.async(qos: .userInteractive) { [self] in
                 delegate.updateFont(self)
+                delegate.updateAttributes(self)
                 delegate.highlight(self)
             }
         }

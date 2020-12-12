@@ -61,16 +61,16 @@ public struct Source: View {
         .onAppear {
             modify?(textView)
             update(for: colorScheme)
-//            #if os(macOS)
-//            textView.delegate?.textDidChange?(
-//                Notification(
-//                    name: .NSManagedObjectContextObjectsDidChange,
-//                    object: textView,
-//                    userInfo: nil)
-//            )
-//            #elseif os(iOS)
-//            textView.delegate?.textViewDidChange?(textView)
-//            #endif
+            //            #if os(macOS)
+            //            textView.delegate?.textDidChange?(
+            //                Notification(
+            //                    name: .NSManagedObjectContextObjectsDidChange,
+            //                    object: textView,
+            //                    userInfo: nil)
+            //            )
+            //            #elseif os(iOS)
+            //            textView.delegate?.textViewDidChange?(textView)
+            //            #endif
         }
         .onChange(of: themeDidChange) { didChange in
             guard didChange else { return }
@@ -115,8 +115,8 @@ public struct Source: View {
                 scheme == .dark ?
                 themeSet.dark :
                 themeSet.light
-//            print(colorScheme, scheme)
-//            print(theme.scheme, themeSet.light.scheme)
+            //            print(colorScheme, scheme)
+            //            print(theme.scheme, themeSet.light.scheme)
             textView.updateTheme()
         }
     }
@@ -216,39 +216,38 @@ struct _Source: ViewRepresentable {
 
     func makeView(context: Context) -> SourceTextView {
         textView.delegate = context.coordinator
-        textView.isEditable = context.coordinator.view.isEditable
         #if os(macOS)
-        textView.string = context.coordinator.view.input
-        textView.isRichText = false
-        textView.drawsBackground = false
-        textView.enclosingScrollView?.automaticallyAdjustsContentInsets = false
-        textView.textContainer?.textView?.additionalSafeAreaInsets =
-            context.coordinator.view.insets
-        textView.textContainer?.textView?.bounds.origin =
-            context.coordinator.view.offset
+        textView.baseView.delegate = context.coordinator
+        textView.baseView.isEditable = context.coordinator.view.isEditable
+        textView.baseView.string = context.coordinator.view.input
+        textView.baseView.isRichText = false
+        textView.baseView.drawsBackground = false
+        textView.baseView.font = fontSet.font
+        textView.baseView.textColor = theme.foreground
+        context.coordinator.updateAttributes(textView.baseView)
+        context.coordinator.highlight(textView.baseView)
         #elseif os(iOS)
         textView.delegate = context.coordinator
         textView.text = context.coordinator.view.input
+        textView.isEditable = context.coordinator.view.isEditable
         textView.isScrollEnabled = context.coordinator.view.isScrollEnabled
         textView.contentInset = context.coordinator.view.insets
         textView.contentOffset = context.coordinator.view.offset
-        #endif
         textView.font = fontSet.font
         textView.textColor = theme.foreground
-//        context.coordinator.updateFont(textView)
         context.coordinator.updateAttributes(textView)
         context.coordinator.highlight(textView)
+        #endif
         return textView
     }
 
     #if os(macOS)
-    typealias NSViewType = SourceTextView
-    func makeNSView(context: Context) -> SourceTextView {
+    typealias NSViewType = NSView
+    func makeNSView(context: Context) -> NSView {
         makeView(context: context)
     }
-
-    func updateNSView(_ nsView: SourceTextView, context: Context) {
-        context.coordinator.updateAttributes(nsView)
+    func updateNSView(_ nsView: NSView, context: Context) {
+        
     }
     #elseif os(iOS)
     typealias UIViewType = SourceTextView
@@ -264,93 +263,105 @@ struct _Source: ViewRepresentable {
 }
 
 
+// MARK: - Subclass
+#if os(macOS)
+public class SourceTextView: NSView, ObservableObject {
+    weak var delegate: NSTextViewDelegate?
 
-extension _Source {
-    class Coordinator: NSObject, TextViewDelegate {
-        var view: _Source
+    private lazy var scrollView: NSScrollView = {
+        let scrollView = NSScrollView()
+        scrollView.drawsBackground = true
+        scrollView.borderType = .noBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalRuler = false
+        scrollView.autoresizingMask = [.width, .height]
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        init(view: _Source) {
-            self.view = view
-        }
-        #if os(macOS)
-        func textDidChange(_ notification: Notification) {
-            guard
-                let textView = notification.object as? TextView else { return }
-            view.input = textView.string
-            view.onChange?()
-            highlight(textView)
-        }
-        func textDidBeginEditing(_ notification: Notification) {
-            //            guard
-            //                let textView = notification.object as? TextView else { return }
-        }
-        func textDidEndEditing(_ notification: Notification) {
-            //            guard
-            //                let textView = notification.object as? TextView else { return }
-        }
-        #elseif os(iOS)
-        func textViewDidChange(_ textView: TextView) {
-            view.input = textView.text
-            view.onChange?()
-            highlight(textView)
-        }
-        func textViewDidBeginEditing(_ textView: TextView) {
-            //view.didBegin()
-        }
-        func textViewDidEndEditing(_ textView: TextView) {
-            //view.didEnd()
-        }
-        #endif
-        
-        func highlight(_ textView: TextView) {
-            guard let language = view.language as? ParsingLanguage else { return }
-            do {
-                #if os(macOS)
-                let text = textView.string
-                #elseif os(iOS)
-                guard let text = textView.text else { return }
-                #endif
-                try language.parse(text: text,
-                                   theme: view.theme,
-                                   fontSet: view.fontSet, result: { result, string in
-                                    DispatchQueue.main.async(qos: .userInteractive) {
-                                        #if os(macOS)
-                                        textView.textStorage?.setAttributedString(string)
-                                        #elseif os(iOS)
-                                        textView.textStorage.setAttributedString(string)
-                                        #endif
-                                    }
-                                   }
-                )
-            }
-            catch {
-                debugPrint(error.localizedDescription)
-            }
-        }
-        func updateAttributes(_ textView: TextView) {
-            #if os(macOS)
-            textView.insertionPointColor = view.theme.foreground
-            #elseif os(iOS)
-            textView.tintColor = view.theme.foreground
-            #endif
-            textView.backgroundColor = .clear
-            //textView.selectedTextRange = context.coordinator.selection
-            //        let layoutDirection = UIView.userInterfaceLayoutDirection(for: textView.semanticContentAttribute)
-            //        textView.textAlignment = NSTextAlignment(textAlignment: textAlignment, userInterfaceLayoutDirection: layoutDirection)
+        return scrollView
+    }()
+
+    lazy var baseView: TextView = {
+        let contentSize = scrollView.contentSize
+        let textStorage = NSTextStorage()
+
+
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+
+
+        let textContainer = NSTextContainer(containerSize: scrollView.frame.size)
+        textContainer.widthTracksTextView = true
+        textContainer.containerSize = NSSize(
+            width: contentSize.width,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+
+        layoutManager.addTextContainer(textContainer)
+
+
+        let textView = NSTextView(frame: .zero, textContainer: textContainer)
+        textView.autoresizingMask = .width
+        textView.backgroundColor = NSColor.textBackgroundColor
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.minSize = NSSize(width: 0, height: contentSize.height)
+
+        return textView
+    }()
+
+    var text: String = "" {
+        didSet {
+            baseView.string = text
         }
     }
+
+    var selectedRanges: [NSValue] = [] {
+        didSet {
+            guard selectedRanges.count > 0 else {
+                return
+            }
+            baseView.selectedRanges = selectedRanges
+        }
+    }
+
+    init() {
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    public override func viewWillDraw() {
+        super.viewWillDraw()
+
+        setupScrollViewConstraints()
+        setupTextView()
+    }
+
+    func setupScrollViewConstraints() {
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+
+        addSubview(scrollView)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: topAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: leadingAnchor)
+        ])
+    }
+
+    func setupTextView() {
+        scrollView.documentView = baseView
+    }
 }
-
-// MARK: - Subclass
+#elseif os(iOS)
 public class SourceTextView: TextView, ObservableObject {
-    #if os(macOS)
-    lazy var stringValue = string
-    #elseif os(iOS)
-    lazy var stringValue = text ?? ""
-
     public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         if let delegate = (delegate as? _Source.Coordinator) {
-            if !delegate.view.input.isEmpty, !stringValue.isEmpty,
+            if !delegate.view.input.isEmpty, !text.isEmpty,
                let previous = previousTraitCollection?.userInterfaceStyle,
                previous != traitCollection.userInterfaceStyle {
                 DispatchQueue.main.async(qos: .userInteractive) { [self] in
@@ -359,14 +370,22 @@ public class SourceTextView: TextView, ObservableObject {
             }
         }
     }
-    #endif
+}
+#endif
+
+extension SourceTextView {
     func updateTheme() {
         if let delegate = delegate as? _Source.Coordinator {
             DispatchQueue.main.async(qos: .userInteractive) { [self] in
+                #if os(macOS)
+                delegate.updateAttributes(self.baseView)
+                delegate.highlight(self.baseView)
+                #elseif os(iOS)
                 delegate.updateAttributes(self)
                 delegate.highlight(self)
+                #endif
             }
         }
     }
-}
 
+}

@@ -74,7 +74,6 @@ struct _SourceText: ViewRepresentable {
         label.lineBreakMode = .byWordWrapping
         label.font = fontSet.font
         label.textColor = theme.foreground
-        updateAttributes(label)
         highlight(label)
         return label
     }
@@ -103,6 +102,7 @@ struct _SourceText: ViewRepresentable {
 
 extension _SourceText {
     func highlight(_ label: SourceLabel) {
+        updateAttributes(label)
         guard shouldHighlight,
         let language = language as? ParsingLanguage else { return }
         do {

@@ -61,16 +61,16 @@ public struct Source: View {
         .onAppear {
             modify?(textView)
             update(for: colorScheme)
-            #if os(macOS)
-            textView.delegate?.textDidChange?(
-                Notification(
-                    name: .NSManagedObjectContextObjectsDidChange,
-                    object: textView,
-                    userInfo: nil)
-            )
-            #elseif os(iOS)
-            textView.delegate?.textViewDidChange?(textView)
-            #endif
+//            #if os(macOS)
+//            textView.delegate?.textDidChange?(
+//                Notification(
+//                    name: .NSManagedObjectContextObjectsDidChange,
+//                    object: textView,
+//                    userInfo: nil)
+//            )
+//            #elseif os(iOS)
+//            textView.delegate?.textViewDidChange?(textView)
+//            #endif
         }
         .onChange(of: themeDidChange) { didChange in
             guard didChange else { return }
@@ -110,9 +110,15 @@ public struct Source: View {
         self.onChange = perform
     }
     func update(for scheme: ColorScheme) {
-        theme =
-            scheme == .dark ?
-            themeSet.dark : themeSet.light
+        DispatchQueue.main.async { [self] in
+            theme =
+                scheme == .dark ?
+                themeSet.dark :
+                themeSet.light
+//            print(colorScheme, scheme)
+//            print(theme.scheme, themeSet.light.scheme)
+            textView.updateTheme()
+        }
     }
 }
 @available(iOS 13.0, *)
@@ -144,6 +150,7 @@ public struct __Source: View {
             offset: offset,
             onChange: onChange
         )
+        .background(Color(theme.background))
         .onAppear {
             modify?(textView)
             #if os(macOS)
@@ -226,7 +233,9 @@ struct _Source: ViewRepresentable {
         textView.contentInset = context.coordinator.view.insets
         textView.contentOffset = context.coordinator.view.offset
         #endif
-        context.coordinator.updateFont(textView)
+        textView.font = fontSet.font
+        textView.textColor = theme.foreground
+//        context.coordinator.updateFont(textView)
         context.coordinator.updateAttributes(textView)
         context.coordinator.highlight(textView)
         return textView
@@ -294,11 +303,7 @@ extension _Source {
         #endif
         
         func highlight(_ textView: TextView) {
-            guard let language = view.language as? ParsingLanguage else {
-                updateFont(textView)
-                //                updateAttributes(textView)
-                return
-            }
+            guard let language = view.language as? ParsingLanguage else { return }
             do {
                 #if os(macOS)
                 let text = textView.string
@@ -322,17 +327,13 @@ extension _Source {
                 debugPrint(error.localizedDescription)
             }
         }
-        func updateFont(_ textView: TextView) {
-            textView.font = view.fontSet.font
-            textView.textColor = view.theme.foreground
-        }
         func updateAttributes(_ textView: TextView) {
             #if os(macOS)
             textView.insertionPointColor = view.theme.foreground
             #elseif os(iOS)
             textView.tintColor = view.theme.foreground
             #endif
-            textView.backgroundColor = view.theme.background
+            textView.backgroundColor = .clear
             //textView.selectedTextRange = context.coordinator.selection
             //        let layoutDirection = UIView.userInterfaceLayoutDirection(for: textView.semanticContentAttribute)
             //        textView.textAlignment = NSTextAlignment(textAlignment: textAlignment, userInterfaceLayoutDirection: layoutDirection)
@@ -362,7 +363,6 @@ public class SourceTextView: TextView, ObservableObject {
     func updateTheme() {
         if let delegate = delegate as? _Source.Coordinator {
             DispatchQueue.main.async(qos: .userInteractive) { [self] in
-                delegate.updateFont(self)
                 delegate.updateAttributes(self)
                 delegate.highlight(self)
             }
